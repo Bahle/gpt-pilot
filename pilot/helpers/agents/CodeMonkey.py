@@ -6,7 +6,7 @@ from helpers.AgentConvo import AgentConvo
 from helpers.Agent import Agent
 from helpers.files import get_file_contents
 from logger.logger import logger
-
+from const.function_calls import GET_FILE_TO_MODIFY
 
 class CodeMonkey(Agent):
     save_dev_steps = True
@@ -42,17 +42,9 @@ class CodeMonkey(Agent):
         # If we're called as a result of debugging, we don't have the name/path of the file
         # to modify so we need to figure that out first.
         if 'path' not in step or 'name' not in step:
-            files_to_change = self.identify_files_to_change(code_changes_description, files)
-
-            if len(files_to_change) == 0:
-                # This should never happen, but let's not crash if it does
-                logger.warning(f"No relevant files found for code change: {code_changes_description}")
-                return convo
-
-            # In practice, we always have exactly one file to change, so we can just pick the first in
-            # the list.
-            step['path'] = os.path.dirname(files_to_change[0])
-            step['name'] = os.path.basename(files_to_change[0])
+            file_to_change = self.identify_file_to_change(code_changes_description, files)
+            step['path'] = os.path.dirname(file_to_change)
+            step['name'] = os.path.basename(file_to_change)
 
         rel_path, abs_path = self.project.get_full_file_path(step['path'], step['name'])
 
@@ -65,6 +57,7 @@ class CodeMonkey(Agent):
             # If we didn't have the match (because of incorrect or double use of path separators or similar), fallback to directly loading the file
             file_content = get_file_contents(abs_path, self.project.root_path)['content']
             if isinstance(file_content, bytes):
+                # We should never want to change a binary file, but if we do end up here, let's not crash
                 file_content = "... <binary file, content omitted> ..."
 
         file_name = os.path.join(rel_path, step['name'])
@@ -163,7 +156,6 @@ class CodeMonkey(Agent):
                 file_content,
                 file_name, files
             )
-            blocks = self.get_code_blocks(llm_response)
 
         if content and content != file_content:
             self.project.save_file({
@@ -215,29 +207,20 @@ class CodeMonkey(Agent):
         return blocks[0]
 
 
-    def identify_files_to_change(self, code_changes_description: str, files: list[dict]) -> list[str]:
+    def identify_file_to_change(self, code_changes_description: str, files: list[dict]) -> str:
         """
-        Identify files to change based on the code changes description
-
-        We really just want one file, but this can handle mutliple files
-        and will return them all, or an empty list if no files are
-        returned.
+        Identify file to change based on the code changes description
 
         :param code_changes_description: description of the code changes
         :param files: list of files to send to the LLM
-        :return: list of files to change
+        :return: file to change
         """
         convo = AgentConvo(self)
         llm_response = convo.send_message('development/identify_files_to_change.prompt', {
             "code_changes_description": code_changes_description,
             "files": files,
-        })
-        blocks = self.get_code_blocks(llm_response)
-        files = []
-        for block in blocks:
-            for line in block.splitlines():
-                files.append(line.strip())
-        return files
+        }, GET_FILE_TO_MODIFY)
+        return llm_response["file"]
 
     @staticmethod
     def get_code_blocks(llm_response: str) -> list[str]:

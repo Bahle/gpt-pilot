@@ -79,7 +79,7 @@ def test_replace(haystack, needle, result, error):
 def test_identify_files_to_change(MockAgentConvo, llm_response, expected):
     mock_convo = MockAgentConvo.return_value
     mock_convo.send_message.return_value = llm_response
-    files = CodeMonkey(None, None).identify_files_to_change("some description", [])
+    files = CodeMonkey(None, None).identify_file_to_change("some description", [])
     assert files == expected
 
 

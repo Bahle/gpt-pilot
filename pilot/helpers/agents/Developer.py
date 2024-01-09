@@ -156,23 +156,12 @@ class Developer(Agent):
             else:
                 return {"success": True}
 
-        # TODO fix this - the problem is in GPT response that sometimes doesn't return the correct JSON structure
-        if 'save_file' not in step:
-            data = step
-        else:
-            data = step['save_file']
-
+        data = step['save_file']
         self.project.save_file(data)
-        # TODO end
         return {"success": True}
 
     def step_modify_file(self, convo, task_description, step, i, test_after_code_changes):
-        # TODO fix this - the problem is in GPT response that sometimes doesn't return the correct JSON structure
-        if 'modify_file' not in step:
-            data = step
-        else:
-            data = step['modify_file']
-
+        data = step['modify_file']
         print(f'Updating existing file {data["name"]}: {data["code_change_description"].splitlines()[0]}')
         code_monkey = CodeMonkey(self.project, self)
         code_monkey.implement_code_changes(convo, task_description, data['code_change_description'], data, i)
@@ -180,12 +169,7 @@ class Developer(Agent):
 
     def step_command_run(self, convo, step, i, success_with_cli_response=False):
         logger.info('Running command: %s', step['command'])
-        # TODO fix this - the problem is in GPT response that sometimes doesn't return the correct JSON structure
-        if isinstance(step['command'], str):
-            data = step
-        else:
-            data = step['command']
-        # TODO END
+        data = step['command']
         additional_message = ''  # 'Let\'s start with the step #0:\n' if i == 0 else f'So far, steps { ", ".join(f"#{j}" for j in range(i+1)) } are finished so let\'s do step #{i + 1} now.\n'
 
         command_id = data['command_id'] if 'command_id' in data else None

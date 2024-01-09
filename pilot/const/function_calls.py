@@ -206,7 +206,7 @@ IMPLEMENT_TASK = {
                                 'command': command_definition(),
                                 'save_file': {
                                     'type': 'object',
-                                    'description': 'A file that needs to be created or updated (completely replaced). This should be used for new files, small files (up to 100 lines), and files with where most of the content is replaced.',
+                                    'description': 'A file that needs to be created or file that needs to be completely replaced. This should be used for new files, files up to 100 lines, and files with where more than half of the content is replaced.',
                                     'properties': {
                                         'name': {
                                             'type': 'string',
@@ -225,7 +225,7 @@ IMPLEMENT_TASK = {
                                 },
                                 'modify_file': {
                                     'type': 'object',
-                                    'description': 'A file that should be modified. This should only be used for large existing files (more than 100 lines of code).',
+                                    'description': 'A file that should be modified. This should only be used for existing files that have more than 100 lines of code.',
                                     'properties': {
                                         'name': {
                                             'type': 'string',
@@ -449,6 +449,26 @@ EXECUTE_COMMANDS = {
         'execute_commands': lambda commands: commands
     }
 }
+
+GET_FILE_TO_MODIFY = {
+    'definitions': [{
+        'name': 'get_file_to_modify',
+        'description': 'File that needs to be modified.',
+        'parameters': {
+            'type': 'object',
+            'properties': {
+                'file': {
+                    'type': 'string',
+                    'description': 'Path to the file that needs to be modified, relative to the project root.',
+                }
+            }
+        }
+    }],
+    'functions': {
+        'get_file_to_modify': lambda file: file
+    }
+}
+
 
 GET_TEST_TYPE = {
     'definitions': [{
