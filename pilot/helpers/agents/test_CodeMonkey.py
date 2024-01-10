@@ -4,7 +4,7 @@ import pytest
 
 
 from helpers.agents.CodeMonkey import CodeMonkey
-
+from const.function_calls import GET_FILE_TO_MODIFY
 
 @pytest.mark.parametrize(
     ("content", "expected_blocks"),
@@ -66,21 +66,42 @@ def test_replace(haystack, needle, result, error):
         assert code_monkey.replace(haystack, needle, "@@NEW@@") == result
 
 
-@pytest.mark.parametrize(
-    ("llm_response", "expected"),
-    [
-        ("", []),
-        ("no code block", []),
-        ("```\nfile1.py\nfile2.py\n```\n", ["file1.py", "file2.py"]),
-        ("files:\n```\nfile1.py\nfile2.py\n```\nthat's all folks!", ["file1.py", "file2.py"]),
-    ]
-)
 @patch("helpers.agents.CodeMonkey.AgentConvo")
-def test_identify_files_to_change(MockAgentConvo, llm_response, expected):
+def test_identify_file_to_change(MockAgentConvo):
     mock_convo = MockAgentConvo.return_value
-    mock_convo.send_message.return_value = llm_response
+    mock_convo.send_message.return_value = {"file": "file.py"}
     files = CodeMonkey(None, None).identify_file_to_change("some description", [])
-    assert files == expected
+    assert files == "file.py"
+    mock_convo.send_message.assert_called_once_with(
+        "development/identify_files_to_change.prompt",
+        {
+            "code_changes_description": "some description",
+            "files": []
+        },
+        GET_FILE_TO_MODIFY
+    )
+
+
+def test_dedent():
+    old_code = "\n".join([
+        "    def foo():",
+        "        print('bar')",
+    ])
+    new_code = "\n".join([
+        "  def bar():",
+        "      print('foo')",
+    ])
+    expected_old = "\n".join([
+        "  def foo():",
+        "      print('bar')",
+    ])
+    expected_new = "\n".join([
+        "def bar():",
+        "    print('foo')",
+    ])
+    result_old, result_new = CodeMonkey.dedent(old_code, new_code)
+    assert result_old == expected_old
+    assert expected_new == result_new
 
 
 def test_codemonkey_simple():
@@ -126,12 +147,17 @@ def test_codemonkey_simple():
 
 
 def test_codemonkey_retry():
+    file_content = (
+        "one to the\nfoo\nto the three to the four\n"
+        "the rest of this file is filler so it's big enought not to "
+        "trigger the full replace fallback immediately upon the first failure"
+    )
     mock_project = MagicMock()
     mock_project.get_all_coded_files.return_value = [
         {
             "path": "",
             "name": "main.py",
-            "content": "one to the\nfoo\nto the three to the four"
+            "content": file_content,
         },
     ]
     mock_project.get_full_file_path.return_value = ("", normpath("/path/to/main.py"))
@@ -140,7 +166,7 @@ def test_codemonkey_retry():
         # Incorrect match
         "## Change\nOld:\n```\ntwo\n```\nNew:\n```\nbar\n```\n",
         # Corrected match on retry
-        "Apologies, here is the corrected version. ## Change\nOld:\n```\nfoo\n```\nNew:\n```\nbar\n```\n",
+        "Apologies, here is the corrected version. ## Change\nOld:\n```\n  foo\n```\nNew:\n```\n  bar\n```\n",
     ]
 
     cm = CodeMonkey(mock_project, None)
@@ -162,7 +188,7 @@ def test_codemonkey_retry():
                 "full_output": False,
                 "standalone": False,
                 "code_changes_description": "Modify all references from `foo` to `bar`",
-                "file_content": "one to the\nfoo\nto the three to the four",
+                "file_content": file_content,
                 "file_name": "main.py",
                 "files": mock_project.get_all_coded_files.return_value,
             }
@@ -170,6 +196,7 @@ def test_codemonkey_retry():
         call(
             "utils/llm_response_error.prompt", {
                 "error": (
+                    "Error in change 1:\n"
                     "Old code block not found in the original file:\n```\ntwo\n```\n"
                     "Old block *MUST* contain the exact same text (including indentation, empty lines, etc.) "
                     "as the original file in order to match."
@@ -180,7 +207,7 @@ def test_codemonkey_retry():
     mock_project.save_file.assert_called_once_with({
         "path": sep,
         "name": "main.py",
-        "content": "one to the\nbar\nto the three to the four"
+        "content": file_content.replace("foo", "bar"),
     })
 
 
@@ -196,13 +223,8 @@ def test_codemonkey_fallback():
     mock_project.get_full_file_path.return_value = ("", normpath("/path/to/main.py"))
     mock_convo = MagicMock()
     mock_convo.send_message.side_effect = [
-        # 6 incorrect matches
+        # Incorrect match, will cause immediate fallback because of short file
         "1 ## Change\nOld:\n```\ntwo\n```\nNew:\n```\nbar\n```\n",
-        "2 ## Change\nOld:\n```\ntwo\n```\nNew:\n```\nbar\n```\n",
-        "3 ## Change\nOld:\n```\ntwo\n```\nNew:\n```\nbar\n```\n",
-        "4 ## Change\nOld:\n```\ntwo\n```\nNew:\n```\nbar\n```\n",
-        "5 ## Change\nOld:\n```\ntwo\n```\nNew:\n```\nbar\n```\n",
-        "6 ## Change\nOld:\n```\ntwo\n```\nNew:\n```\nbar\n```\n",
         # Fallback returns entire new file
         "```\none to the\nbar\nto the three to the four\n```\n",
     ]
@@ -229,51 +251,6 @@ def test_codemonkey_fallback():
                 "file_content": "one to the\nfoo\nto the three to the four",
                 "file_name": "main.py",
                 "files": mock_project.get_all_coded_files.return_value,
-            }
-        ),
-        call(
-            "utils/llm_response_error.prompt", {
-                "error": (
-                    "Old code block not found in the original file:\n```\ntwo\n```\n"
-                    "Old block *MUST* contain the exact same text (including indentation, empty lines, etc.) "
-                    "as the original file in order to match."
-                ),
-            }
-        ),
-        call(
-            "utils/llm_response_error.prompt", {
-                "error": (
-                    "Old code block not found in the original file:\n```\ntwo\n```\n"
-                    "Old block *MUST* contain the exact same text (including indentation, empty lines, etc.) "
-                    "as the original file in order to match."
-                ),
-            }
-        ),
-        call(
-            "utils/llm_response_error.prompt", {
-                "error": (
-                    "Old code block not found in the original file:\n```\ntwo\n```\n"
-                    "Old block *MUST* contain the exact same text (including indentation, empty lines, etc.) "
-                    "as the original file in order to match."
-                ),
-            }
-        ),
-        call(
-            "utils/llm_response_error.prompt", {
-                "error": (
-                    "Old code block not found in the original file:\n```\ntwo\n```\n"
-                    "Old block *MUST* contain the exact same text (including indentation, empty lines, etc.) "
-                    "as the original file in order to match."
-                ),
-            }
-        ),
-        call(
-            "utils/llm_response_error.prompt", {
-                "error": (
-                    "Old code block not found in the original file:\n```\ntwo\n```\n"
-                    "Old block *MUST* contain the exact same text (including indentation, empty lines, etc.) "
-                    "as the original file in order to match."
-                ),
             }
         ),
         call(
@@ -317,8 +294,8 @@ def test_codemonkey_implement_changes_after_debugging(MockAgentConvo, mock_get_f
     }
 
     cm = CodeMonkey(mock_project, None)
-    with patch.object(cm, "identify_files_to_change") as mock_identify_files_to_change:
-        mock_identify_files_to_change.return_value = ["/main.py"]
+    with patch.object(cm, "identify_file_to_change") as mock_identify_file_to_change:
+        mock_identify_file_to_change.return_value = "/main.py"
         cm.implement_code_changes(
             None,
             "test",
