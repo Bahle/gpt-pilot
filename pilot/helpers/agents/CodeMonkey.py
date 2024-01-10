@@ -145,7 +145,7 @@ class CodeMonkey(Agent):
             exchanged_messages += 2
         else:
             # We failed after a few retries, so let's just replace the complete file
-            print(f"Unable to modify file, asking LLM to output the complete new file")
+            print("Unable to modify file, asking LLM to output the complete new file")
             replace_complete_file = True
 
         if replace_complete_file:
@@ -255,10 +255,10 @@ class CodeMonkey(Agent):
         old_lines = old_code.splitlines()
         new_lines = new_code.splitlines()
         indent = 0
-        while all(l.startswith(" ") for l in old_lines) and all(l.startswith(" ") for l in new_lines):
+        while all(ol.startswith(" ") for ol in old_lines) and all(ol.startswith(" ") for ol in new_lines):
             indent -= 1
-            old_lines = [l[1:] for l in old_lines]
-            new_lines = [l[1:] for l in new_lines]
+            old_lines = [ol[1:] for ol in old_lines]
+            new_lines = [nl[1:] for nl in new_lines]
         return "\n".join(old_lines), "\n".join(new_lines)
 
     @staticmethod
